@@ -10,6 +10,7 @@
 */
 
 const crypto = require('crypto')
+const through2 = require('through2')
 const fs = require('fs')
 const {join, resolve, relative, dirname} = require('path')
 const multicb = require('multicb')
@@ -117,9 +118,25 @@ client( (err, ssb, conf, keys) => {
             cb(err || null)
           })
           if (source) {
-            const sourcePath = resolve(conf.boot || '/boot', source)
+            const sourcePath = resolve(conf['boot-dir'] || '/boot', source)
             console.log(`Reading from ${sourcePath}`)
-            fs.createReadStream(sourcePath).pipe(entry)
+            const hash = crypto.createHash('sha256')
+            fs.createReadStream(sourcePath)
+              .pipe(through2(function (chunk, enc, callback) {
+                this.push(chunk)
+                hash.update(chunk)
+                callback()
+              }))
+              .pipe(entry)
+              .on('finish', ()=>{
+                const sha = hash.digest('base64')
+                if (sha !== shasum) {
+                  console.error(`checksum mismatch! ${sha} !== ${shasum}`)
+                  process.exit(1)
+                } else {
+                  console.log(`${sourcePath} checksum matches`)
+                }
+              })
           } else {
             const blob = `&${shasum}.sha256`
             console.log(`Loading from blob ${blob}`)
@@ -147,7 +164,7 @@ client( (err, ssb, conf, keys) => {
                     console.error(`checksum mismatch! ${sha} !== ${shasum}`)
                     process.exit(1)
                   } else {
-                    console.log('checksum matches')
+                    console.log(`${filename} checksum matches`)
                   }
                   if (err) console.error(err.message)
                 })
