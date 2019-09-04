@@ -9,6 +9,7 @@
  * SECS wait number of seconds for update to have settled (during gossip)
 */
 
+const crypto = require('crypto')
 const fs = require('fs')
 const {join, resolve, relative, dirname} = require('path')
 const multicb = require('multicb')
@@ -108,6 +109,7 @@ client( (err, ssb, conf, keys) => {
         pull.asyncMap( ({filename, checksum, source}, cb)=> {
           let [shasum, size] = checksum.split('#')
           size = Number(size)
+          shasum = shasum.split('.')[0]
           console.log(`Packing ${filename} (${size} = ${bytes(size)})`)
           const entry = pack.entry({name: filename, size}, err =>{
             console.log(`tar entry for ${filename} complete`)
@@ -119,7 +121,7 @@ client( (err, ssb, conf, keys) => {
             console.log(`Reading from ${sourcePath}`)
             fs.createReadStream(sourcePath).pipe(entry)
           } else {
-            const blob = `&${shasum}`
+            const blob = `&${shasum}.sha256`
             console.log(`Loading from blob ${blob}`)
             
             ensureLocal(blob, err=>{
@@ -129,14 +131,24 @@ client( (err, ssb, conf, keys) => {
               }
               console.log('Received blob')
               let total = 0 
+              const hash = crypto.createHash('sha256')
               pull(
                 ssb.blobs.get(blob),
                 pull.through(x=>{
                   total += x.length
                   process.stdout.write(`${total} / ${size}\r`)
                 }),
+                pull.through(x=>{
+                  hash.update(x)
+                }),
                 toPull.sink(entry, err =>{
-                  console.log('blob sink done')
+                  const sha = hash.digest('base64')
+                  if (sha !== shasum) {
+                    console.error(`checksum mismatch! ${sha} !== ${shasum}`)
+                    process.exit(1)
+                  } else {
+                    console.log('checksum matches')
+                  }
                   if (err) console.error(err.message)
                 })
               )
