@@ -47,8 +47,6 @@ client( (err, ssb, conf, keys) => {
   const currentSums = getChecksums(getFiles(issue))
   console.log('Current System')
   console.log(currentSums)
-  console.log()
-  console.log('Update')
 
   let currentKv
   pull(
@@ -70,6 +68,9 @@ client( (err, ssb, conf, keys) => {
       currentKv = kv
     }),
     debounce(conf.wait !== undefined ? conf.wait : 3000),
+    pull.through(kv => {
+      console.log('Applying update')
+    }),
     pull.map(kv => getIssue(kv)),
     pull.map(issue => getFiles(issue)),
     pull.map(files => getChecksums(files)),
@@ -109,7 +110,7 @@ client( (err, ssb, conf, keys) => {
           size = Number(size)
           console.log(`Packing ${filename} (${size} = ${bytes(size)})`)
           const entry = pack.entry({name: filename, size}, err =>{
-            console.log('entry done')
+            console.log(`tar entry for ${filename} complete`)
             if (err) console.error(err.message)
             cb(err || null)
           })
@@ -120,18 +121,19 @@ client( (err, ssb, conf, keys) => {
           } else {
             const blob = `&${shasum}`
             console.log(`Loading from blob ${blob}`)
-            ssb.blobs.has(blob, (err, has) => {
-              if (err) return cb(err)
-              console.log(`Blob present locally: ${has}`)
-            })
-            ssb.blobs.want(blob, (err, has)=>{
-              if (err) return cb(err)
+            
+            ensureLocal(blob, err=>{
+              if (err) {
+                console.error(err.message)
+                return cb(err)
+              }
+              console.log('Received blob')
               let total = 0 
               pull(
                 ssb.blobs.get(blob),
                 pull.through(x=>{
                   total += x.length
-                  console.log(`${total} / ${size}`)
+                  process.stdout.write(`${total} / ${size}\r`)
                 }),
                 toPull.sink(entry, err =>{
                   console.log('blob sink done')
@@ -166,6 +168,19 @@ client( (err, ssb, conf, keys) => {
       console.log('Done')
     })
   )
+
+  function ensureLocal(blob, cb) {
+    ssb.blobs.has(blob, (err, has) => {
+      if (err) return cb(err)
+      console.log(`Blob ${has ? 'is' : 'is not yet'} present locally`)
+      if (has) {
+        return cb(null)
+      }
+      console.log('Requesting blob ...')
+      ssb.blobs.want(blob, cb) 
+    })
+  }
+
 })
   
 function readIssueFile(path) {
