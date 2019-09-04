@@ -1,0 +1,27 @@
+{
+  "name": "treos-update",
+  "version": "1.0.0",
+  "main": "await-stable.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Jan Bölsche <jan@lagomorph.de> (https://regular.codes/)",
+  "license": "ISC",
+  "dependencies": {
+    "debug": "^4.1.1",
+    "mutant": "^3.23.0",
+    "tre-prototypes": "^1.9.0",
+    "tre-watch-heads": "^1.1.1"
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/regular/treos-update.git"
+  },
+  "bugs": {
+    "url": "https://github.com/regular/treos-update/issues"
+  },
+  "homepage": "https://github.com/regular/treos-update#readme",
+  "description": ""
+}
