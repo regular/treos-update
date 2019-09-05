@@ -36,7 +36,8 @@ client( (err, ssb, conf, keys) => {
     process.exit(1)
   }
 
-  const issue = getIssue(readIssueFile(conf._[0]))
+  const issueKv = readIssueFile(conf._[0])
+  const issue = getIssue(issueKv)
   const revRoot = conf._[1]
   if (!isMsg(revRoot)) {
     console.error(`${revRoot} is not a valid ssb message reference`)
@@ -45,6 +46,9 @@ client( (err, ssb, conf, keys) => {
 
   const currentSums = getChecksums(getFiles(issue))
   console.log('Current System')
+  if (issueKv.key) {
+    console.log(`System message id: ${issue.key}`)
+  }
   console.log(currentSums)
   console.log('Bootloader')
   const currentBootloaderConfig = issue.bootloader
@@ -122,10 +126,17 @@ client( (err, ssb, conf, keys) => {
         })
       )
     }),
-    pull.filter(),
+    pull.filter(todo=>{
+      if (!todo.length) {
+        console.log('Nothing to do')
+      } else {
+        console.log('Applying update')
+      }
+      return todo.length
+    }),
     pull.asyncMap( (todo, cb)=>{
       const output = conf.output || 'update.tar'
-      console.log(`Applying update, writing ${output}`)
+      console.log(`Writing ${output}`)
       const pack = tar.pack()
       const outputStream = fs.createWriteStream(output)
       pack.pipe(outputStream)
