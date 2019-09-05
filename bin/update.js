@@ -17,29 +17,14 @@ const multicb = require('multicb')
 const client = require('tre-cli-client')
 const {isMsg} = require('ssb-ref')
 const tar = require('tar-stream')
+const equal = require('deep-equal')
 
 const toPull = require('stream-to-pull-stream')
 const pull = require('pull-stream')
 const debounce = require('pull-debounce')
 const bytes = require('human-size')
 
-const gummiboot = require('../lib/systemd-boot')
-
-function makeBootloaderConfig(issue) {
-  const {bootloader} = issue
-  const config = gummiboot.makeConfig(bootloader.config)
-  const entries = Object.entries(bootloader.entries).map( ([name, fields]) =>{
-    const entry = gummiboot.makeBootEntry(fields)
-    return {name, entry}
-  })
-
-  return entries.reduce( (acc, {name, entry})=>{
-    acc[`loader/entries/${name}`] = entry
-    return acc
-  }, {
-    'loader/loader.conf': config
-  })
-}
+const makeBootloaderConfigFiles = require('../lib/systemd-boot')
 
 client( (err, ssb, conf, keys) => {
   if (err) {
@@ -62,12 +47,13 @@ client( (err, ssb, conf, keys) => {
   console.log('Current System')
   console.log(currentSums)
   console.log('Bootloader')
-  const currentBootloaderFiles = makeBootloaderConfig(issue)
-  Object.entries(currentBootloaderFiles).forEach( ([name, content])=>{
-    console.log(`${name}:\n${content}\n`)
-  })
+  const currentBootloaderConfig = issue.bootloader
+  console.log(JSON.stringify(currentBootloaderConfig, null, 2))
 
-  let currentKv
+  /*
+  */
+
+  let updateKv
   pull(
     ssb.revisions.heads(revRoot, {
       live: true,
@@ -84,16 +70,26 @@ client( (err, ssb, conf, keys) => {
     pull.filter(),
     pull.through(kv => {
       console.log(`Found update ${kv.key}`)
-      currentKv = kv
+      updateKv = kv
     }),
     debounce(conf.wait !== undefined ? conf.wait : 3000),
     pull.through(kv => {
-      console.log('Applying update')
+      console.log('Checking update')
     }),
     pull.map(kv => getIssue(kv)),
-    pull.map(issue => getFiles(issue)),
-    pull.map(files => getChecksums(files)),
-    pull.asyncMap((checksums, cb) =>{
+    pull.map(issue => {
+      return {
+        files: getFiles(issue),
+        bootloaderConfig: issue.bootloader
+      }
+    }),
+    pull.map( ({files, bootloaderConfig}) => {
+      return {
+        checksums: getChecksums(files),
+        bootloaderConfig
+      }
+    }),
+    pull.asyncMap(({checksums, bootloaderConfig}, cb) =>{
       pull(
         pull.values(Object.entries(checksums)),
         pull.filter( ([filename, checksum]) =>{
@@ -111,20 +107,37 @@ client( (err, ssb, conf, keys) => {
           }
           return {filename, checksum}
         }),
-        pull.collect(cb)
+        pull.collect((err, result)=>{
+          if (err) return cb(err)
+          if (!equal(bootloaderConfig, currentBootloaderConfig)) {
+            console.log('Bootloader config has changed')
+            const bootloaderConfigFiles = makeBootloaderConfigFiles(bootloaderConfig)
+            result = result.concat(Object.entries(bootloaderConfigFiles).map( ([filename, content]) => {
+              return {filename, content}
+            }))
+          } else {
+            console.log('Bootloader config is identical')
+          }
+          cb(null, result)
+        })
       )
     }),
     pull.filter(),
     pull.asyncMap( (todo, cb)=>{
       const output = conf.output || 'update.tar'
-      console.log(`Writing ${output}`)
+      console.log(`Applying update, writing ${output}`)
       const pack = tar.pack()
       const outputStream = fs.createWriteStream(output)
       pack.pipe(outputStream)
-      pack.entry({name: 'treos-issue.json'}, JSON.stringify(currentKv, null, 2))
+      pack.entry({name: 'treos-issue.json'}, JSON.stringify(updateKv, null, 2))
       pull(
         pull.values(todo),
-        pull.asyncMap( ({filename, checksum, source}, cb)=> {
+        pull.asyncMap( ({filename, checksum, content, source}, cb)=> {
+          if (content) {
+            console.log(`Packing ${filename}`)
+            pack.entry({name: filename}, content)
+            return cb(null)
+          }
           let [shasum, size] = checksum.split('#')
           size = Number(size)
           shasum = shasum.split('.')[0]
