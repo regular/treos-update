@@ -19,15 +19,27 @@ const {isMsg} = require('ssb-ref')
 const tar = require('tar-stream')
 
 const toPull = require('stream-to-pull-stream')
-//const toStram = require('pull-stream-to-stream')
 const pull = require('pull-stream')
 const debounce = require('pull-debounce')
 const bytes = require('human-size')
-/*
-const file = require('pull-file')
-const paramap = require('pull-paramap')
-const htime = require('human-time')
-*/
+
+const gummiboot = require('../lib/systemd-boot')
+
+function makeBootloaderConfig(issue) {
+  const {bootloader} = issue
+  const config = gummiboot.makeConfig(bootloader.config)
+  const entries = Object.entries(bootloader.entries).map( ([name, fields]) =>{
+    const entry = gummiboot.makeBootEntry(fields)
+    return {name, entry}
+  })
+
+  return entries.reduce( (acc, {name, entry})=>{
+    acc[`loader/entries/${name}`] = entry
+    return acc
+  }, {
+    'loader/loader.conf': config
+  })
+}
 
 client( (err, ssb, conf, keys) => {
   if (err) {
@@ -49,6 +61,11 @@ client( (err, ssb, conf, keys) => {
   const currentSums = getChecksums(getFiles(issue))
   console.log('Current System')
   console.log(currentSums)
+  console.log('Bootloader')
+  const currentBootloaderFiles = makeBootloaderConfig(issue)
+  Object.entries(currentBootloaderFiles).forEach( ([name, content])=>{
+    console.log(`${name}:\n${content}\n`)
+  })
 
   let currentKv
   pull(
