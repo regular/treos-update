@@ -1,0 +1,3 @@
+- [ ] quit after one update, or optionally, wehn thre is no pending update (not live)
+- [ ] Use WatchMerged, so it is easy to use the same image with differnt kernel options for different stations
+ 
