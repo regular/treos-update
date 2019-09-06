@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 
-/* Usage: update [--config PATH-TO-SSB-CONFIG] [--wait SECS] [--tmpdir TMPDIR] ISSUEFILE REVROOT
+/* Usage: 
+ *
+ *   update [--config PATH-TO-SSB-CONFIG] [--wait SECS] [--tmpdir TMPDIR] --boot-vars "KEY1=VALUE1 KEY2=VALUE2" ISSUEFILE REVROOT
  *
  * ISSUEFILE is the path to treos-issue.json describing the current system
  * REVROOT is an ssb key. If the latest revision of this message differs from
  * the system described in ISSUEFILE, an update.tar file will be created in the
  * current working directory.
  * SECS wait number of seconds for update to have settled (during gossip)
+ * KEYx, VALUEx are used in replacing placehoder strings in boot options. Defaults to contents of
+ * /proc/cmdline.
 */
 
 const os = require('os')
@@ -28,7 +32,7 @@ const debounce = require('pull-debounce')
 const client = require('tre-cli-client')
 const {isMsg} = require('ssb-ref')
 
-const makeBootloaderConfigFiles = require('../lib/systemd-boot')
+const makeBootloaderConfigFiles = require('treos-bootconfig/systemd-boot')
 
 client( (err, ssb, conf, keys) => {
   if (err) {
@@ -40,8 +44,17 @@ client( (err, ssb, conf, keys) => {
     process.exit(1)
   }
 
+  const rawBootVars = conf['boot-vars'] || fs.readFileSync('/proc/cmdline', 'utf8')
   const updateTar = conf.output || 'update.tar'
   const tmpfile = join(conf.tmpdir || os.tmpdir(), crypto.randomBytes(20).toString('hex'))
+
+  const bootVars = {}
+  rawBootVars.replace(/(\w+)=([\S]+)/g, (a,key,value)=>{
+    bootVars[key] = value
+  })
+
+  console.log('Bootvars')
+  console.log(bootVars)
 
   readIssueFile(updateTar, conf._[0], (err, issueKv) => {
     if (err) {
@@ -67,10 +80,7 @@ client( (err, ssb, conf, keys) => {
     console.log(currentSums)
     console.log('Bootloader')
     const currentBootloaderConfig = issue.bootloader
-    console.log(JSON.stringify(currentBootloaderConfig, null, 2))
-
-    /*
-    */
+    console.dir(currentBootloaderConfig, {depth: 5})
 
     let updateKv
     pull(
@@ -130,7 +140,7 @@ client( (err, ssb, conf, keys) => {
             if (err) return cb(err)
             if (!equal(bootloaderConfig, currentBootloaderConfig)) {
               console.log('Bootloader config has changed')
-              const bootloaderConfigFiles = makeBootloaderConfigFiles(bootloaderConfig)
+              const bootloaderConfigFiles = makeBootloaderConfigFiles(bootloaderConfig, bootVars)
               result = result.concat(Object.entries(bootloaderConfigFiles).map( ([filename, content]) => {
                 return {filename, content}
               }))

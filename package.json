@@ -26,7 +26,8 @@
     "tar-stream": "^2.1.0",
     "through2": "^3.0.1",
     "tre-cli-client": "^1.1.0",
-    "tre-watch-heads": "^1.1.1"
+    "tre-watch-heads": "^1.1.1",
+    "treos-bootconfig": "^1.0.1"
   },
   "devDependencies": {},
   "repository": {
