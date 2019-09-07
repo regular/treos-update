@@ -33,6 +33,7 @@ const client = require('tre-cli-client')
 const {isMsg} = require('ssb-ref')
 
 const makeBootloaderConfigFiles = require('treos-bootconfig/systemd-boot')
+const parseVars  = require('treos-bootconfig/parse-vars')
 
 client( (err, ssb, conf, keys) => {
   if (err) {
@@ -44,14 +45,9 @@ client( (err, ssb, conf, keys) => {
     process.exit(1)
   }
 
-  const rawBootVars = conf['boot-vars'] || fs.readFileSync('/proc/cmdline', 'utf8')
+  const bootVars = parseVars(conf['boot-vars'] || fs.readFileSync('/proc/cmdline', 'utf8'))
   const updateTar = conf.output || 'update.tar'
   const tmpfile = join(conf.tmpdir || os.tmpdir(), crypto.randomBytes(20).toString('hex'))
-
-  const bootVars = {}
-  rawBootVars.replace(/(\w+)=([\S]+)/g, (a,key,value)=>{
-    bootVars[key] = value
-  })
 
   console.log('Bootvars')
   console.log(bootVars)
