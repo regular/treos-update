@@ -2,7 +2,7 @@
 
 /* Usage: 
  *
- *   update [--config PATH-TO-SSB-CONFIG] [--wait SECS] [--tmpdir TMPDIR] --boot-vars "KEY1=VALUE1 KEY2=VALUE2" ISSUEFILE REVROOT
+ *   update [--config PATH-TO-SSB-CONFIG] [--wait SECS] [--tmpdir TMPDIR] --boot-vars "KEY1=VALUE1 KEY2=VALUE2" ISSUEFILE [REVROOT]
  *
  * ISSUEFILE is the path to treos-issue.json describing the current system
  * REVROOT is an ssb key. If the latest revision of this message differs from
@@ -40,8 +40,8 @@ client( (err, ssb, conf, keys) => {
     console.error(err.message)
     process.exit(1)
   }
-  if (conf._.length<2) {
-    console.error('USAGE: treos-update [--config CONFIG] [--wait SECS] ISSUE.JSON REVROOT')
+  if (conf._.length<1) {
+    console.error('USAGE: treos-update [--config CONFIG] [--wait SECS] ISSUE.JSON [REVROOT]')
     process.exit(1)
   }
 
@@ -62,7 +62,7 @@ client( (err, ssb, conf, keys) => {
 
   function runUpdate(issueKv) {
     const issue = getIssue(issueKv)
-    const revRoot = conf._[1]
+    const revRoot = conf._[1] || revisionRoot(issueKv)
     if (!isMsg(revRoot)) {
       console.error(`${revRoot} is not a valid ssb message reference`)
       process.exit(1)
@@ -72,6 +72,14 @@ client( (err, ssb, conf, keys) => {
     console.log('Current System')
     if (issueKv.key) {
       console.log(`System message id: ${issueKv.key}`)
+    }
+    const issueRevRoot = issueKv.value.content.revisionRoot
+    const issueRevBranch = issueKv.value.content.revisionBranch
+    if (issueRevRoot) {
+      console.log(`System revisionRoot: ${issueRevRoot}`)
+    }
+    if (issueRevBranch) {
+      console.log(`System revisionBranch: ${issueRevBranch}`)
     }
     console.log(currentSums)
     console.log('Bootloader')
@@ -91,6 +99,36 @@ client( (err, ssb, conf, keys) => {
       pull.map( mh =>{
         const {meta, heads} = mh
         return heads[0]
+      }),
+      pull.filter(),
+      pull.asyncMap((kv, cb) =>{
+        // if issueKv specifies revisionBranch,
+        // and we are not in the process of switching to anither revRoot,
+        // then we prevent downgrading by checking that issueKv's
+        // revisionBranch is in the history of the update in question.
+        if (issueRevRoot && issueRevRoot !== revisionRoot(kv)) {
+          return cb(null, kv)
+        }
+        if (issueKv.key == kv.key) {
+          console.error('We are up to date.')
+          return cb(null, null)
+        }
+        if (!issueRevBranch) return cb(null, kv)
+        if (issueRevBranch == kv.key) {
+          console.error(`Prevented downgrading to ${kv.key}`)
+          return cb(null, null)
+        }
+        pull(
+          ssb.revisions.history(revRoot),
+          pull.collect( (err, items)=>{
+            if (err) return cb(err)
+            if (items.find(x => x.key == issueRevBranch)) {
+              return cb(null, kv)
+            }
+            console.error(`Prevented downgrading to ${kv.key}`)
+            cb(null, null)
+          })
+        )
       }),
       pull.filter(),
       pull.through(kv => {
@@ -151,7 +189,7 @@ client( (err, ssb, conf, keys) => {
         if (!todo.length) {
           console.log('Nothing to do')
         } else {
-          console.log('Applying update')
+          console.log('Preparing update')
         }
         return todo.length
       }),
@@ -357,4 +395,8 @@ function getFiles(issue) {
     })
     return acc
   }, [])
+}
+
+function revisionRoot(kv) {
+  return kv.value.content.revisionRoot || kv.key
 }
