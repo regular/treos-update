@@ -198,20 +198,30 @@ client( (err, ssb, conf, keys) => {
         console.log(`Writing ${output}`)
         const pack = tar.pack()
         const outputStream = fs.createWriteStream(output)
+        const packedFiles = []
+        function addPacked(f, size) {
+          if (size) {
+            console.log(`Packing file ${f} (${size} = ${bytes(size)})`)
+          } else {
+            console.log(`Packing file ${f}`)
+          }
+          packedFiles.push(f)
+        }
         pack.pipe(outputStream)
+        addPacked('treos-issue.json')
         pack.entry({name: 'treos-issue.json'}, JSON.stringify(updateKv, null, 2))
         pull(
           pull.values(todo),
           pull.asyncMap( ({filename, checksum, content, source}, cb)=> {
             if (content) {
-              console.log(`Packing ${filename}`)
+              addPacked(filename)
               pack.entry({name: filename}, content)
               return cb(null)
             }
             let [shasum, size] = checksum.split('#')
             size = Number(size)
             shasum = shasum.split('.')[0]
-            console.log(`Packing ${filename} (${size} = ${bytes(size)})`)
+            addPacked(filename, size)
             const entry = pack.entry({name: filename, size}, err =>{
               console.log(`tar entry for ${filename} complete`)
               if (err) console.error(err.message)
@@ -273,11 +283,14 @@ client( (err, ssb, conf, keys) => {
           }),
           pull.onEnd(err=>{
             if (err) return cb(err)
-            pack.finalize()
-            outputStream.on('close', err => {
+            addPreexistingEntries(pack, updateTar, packedFiles, err =>{
               if (err) return cb(err)
-              cb(null, output)
-            })
+              pack.finalize()
+              outputStream.on('close', err => {
+                if (err) return cb(err)
+                cb(null, output)
+              })
+            }) 
           })
         )
       }),
@@ -321,6 +334,29 @@ client( (err, ssb, conf, keys) => {
 
 })
   
+function addPreexistingEntries(pack, updateTar, packedFiles, cb) {
+  if (!fs.existsSync(updateTar)) return cb(null)
+  const extract = tar.extract()
+  extract.on('entry', function(header, stream, next) {
+    const {name} = header
+    if (!packedFiles.includes(name)) {
+      console.log(`Adding pre-existing ${name}`)
+      const entry = pack.entry(header, next)
+      stream.pipe(entry)
+    } else {
+      stream.on('end', function() {
+        next() // ready for next entry
+      })
+      stream.resume() // just auto drain the stream
+    }
+  })                 
+  extract.on('finish', function() {
+    console.log('Finished reading tar')
+    cb(null)
+  })
+  fs.createReadStream(updateTar).pipe(extract)
+}
+
 function extractIssue(updateTar, cb) {
   const extract = tar.extract()
   const buffer = bl()
