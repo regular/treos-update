@@ -2,13 +2,15 @@
 
 /* Usage: 
  *
- *   update [--config PATH-TO-SSB-CONFIG] [--wait SECS] [--tmpdir TMPDIR] --boot-vars "KEY1=VALUE1 KEY2=VALUE2" ISSUEFILE [REVROOT]
+ *   update
+ *   [--config PATH-TO-SSB-CONFIG] [--wait MSECS] [--tmpdir TMPDIR] [--boot-vars "KEY1=VALUE1 KEY2=VALUE2"] ISSUEFILE [REVROOT]
+ *   [--reboot never|if-requested|always]
  *
  * ISSUEFILE is the path to treos-issue.json describing the current system
  * REVROOT is an ssb key. If the latest revision of this message differs from
  * the system described in ISSUEFILE, an update.tar file will be created in the
  * current working directory.
- * SECS wait number of seconds for update to have settled (during gossip)
+ * MSECS wait number of milliseconds for update to have settled (during gossip)
  * KEYx, VALUEx are used in replacing placehoder strings in boot options. Defaults to contents of
  * /proc/cmdline.
 */
@@ -17,6 +19,7 @@ const os = require('os')
 const crypto = require('crypto')
 const fs = require('fs')
 const {join, resolve, relative, dirname} = require('path')
+const {exec} = require('child_process')
 const through2 = require('through2')
 const multicb = require('multicb')
 const tar = require('tar-stream')
@@ -307,7 +310,12 @@ client( (err, ssb, conf, keys) => {
           }
           ssb.close()
           console.log('Done')
-          process.exit(0)
+          const {apply} = updateKv.value.content
+          if ( (apply == 'now' && conf.reboot == 'if-requested') || conf.reboot == 'always' )  {
+            reboot()  
+          } else {
+            process.exit(0)
+          }
         })
       }, err=>{
         if (err && err !== true) {
@@ -450,4 +458,11 @@ function modifyBootVars(bootVars, kv) {
       bootVars['tre-invite'] = invite
     }
   }
+}
+
+function reboot() {
+  console.error('Rebooting!')
+  exec('systemctl reboot -i', err => {
+    if (err) console.error(err.message)
+  })
 }
