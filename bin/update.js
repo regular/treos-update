@@ -173,7 +173,7 @@ client( (err, ssb, conf, keys) => {
           pull.collect((err, result)=>{
             if (err) return cb(err)
             if (!equal(bootloaderConfig, currentBootloaderConfig) ||
-              (issueRevRoot && issueRevRoot !== revisionRoot(updateKv))
+              (issueKv.value.content.repositoryBranch !== updateKv.value.content.repositoryBranch)
             ) {
               console.log('Bootloader config files need updating')
               modifyBootVars(bootVars, updateKv)
@@ -443,6 +443,7 @@ function revisionRoot(kv) {
 function modifyBootVars(bootVars, kv) {
   const {repositoryBranch} = kv.value.content
   if (repositoryBranch) {
+    bootVars['treos-branch'] = repositoryBranch
     const invite = bootVars[`tre-${repositoryBranch}-invite`]
     if (invite) {
       console.error(`Setting tre-invite to ${repositoryBranch} invite.`)
