@@ -172,8 +172,11 @@ client( (err, ssb, conf, keys) => {
           }),
           pull.collect((err, result)=>{
             if (err) return cb(err)
-            if (!equal(bootloaderConfig, currentBootloaderConfig)) {
-              console.log('Bootloader config has changed')
+            if (!equal(bootloaderConfig, currentBootloaderConfig) ||
+              (issueRevRoot && issueRevRoot !== revisionRoot(updateKv))
+            ) {
+              console.log('Bootloader config files need updating')
+              modifyBootVars(bootVars, updateKv)
               const bootloaderConfigFiles = makeBootloaderConfigFiles(bootloaderConfig, bootVars)
               result = result.concat(Object.entries(bootloaderConfigFiles).map( ([filename, content]) => {
                 return {filename, content}
@@ -435,4 +438,15 @@ function getFiles(issue) {
 
 function revisionRoot(kv) {
   return kv.value.content.revisionRoot || kv.key
+}
+
+function modifyBootVars(bootVars, kv) {
+  const {repositoryBranch} = kv.value.content
+  if (repositoryBranch) {
+    const invite = bootVars[`tre-${repositoryBranch}-invite`]
+    if (invite) {
+      console.error(`Setting tre-invite to ${repositoryBranch} invite.`)
+      bootVars['tre-invite'] = invite
+    }
+  }
 }
