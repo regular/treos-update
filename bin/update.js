@@ -462,7 +462,7 @@ function modifyBootVars(bootVars, kv) {
 
 function reboot() {
   console.error('Rebooting!')
-  exec('systemctl reboot -i', err => {
+  exec('sudo systemctl reboot -i', err => {
     if (err) console.error(err.message)
   })
 }
